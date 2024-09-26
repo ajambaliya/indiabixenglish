@@ -5,7 +5,6 @@ from bs4 import BeautifulSoup
 from docx import Document
 from datetime import datetime
 import pymongo
-from deep_translator import GoogleTranslator, exceptions
 import asyncio
 import telegram
 import tempfile
@@ -35,15 +34,6 @@ def fetch_article_urls(base_url, pages):
                 article_urls.append(a_tag['href'])
     return article_urls
 
-def translate_to_gujarati(text):
-    try:
-        translator = GoogleTranslator(source='auto', target='gu')
-        return translator.translate(text)
-    except exceptions.TranslationNotFoundException:
-        return text
-    except Exception:
-        return text
-
 async def scrape_and_get_content(url):
     response = requests.get(url)
     soup = BeautifulSoup(response.content, 'html.parser')
@@ -57,29 +47,21 @@ async def scrape_and_get_content(url):
     
     content_list = []
     heading_text = heading.get_text()
-    translated_heading = translate_to_gujarati(heading_text)
-    content_list.append({'type': 'heading', 'text': translated_heading})
     content_list.append({'type': 'heading', 'text': heading_text})
     
     for tag in main_content.find_all(recursive=False):
         if tag.get('class') in [['sharethis-inline-share-buttons', 'st-center', 'st-has-labels', 'st-inline-share-buttons', 'st-animated'], ['prenext']]:
             continue
         text = tag.get_text()
-        translated_text = translate_to_gujarati(text)
         if tag.name == 'p':
-            content_list.append({'type': 'paragraph', 'text': translated_text})
             content_list.append({'type': 'paragraph', 'text': text})
         elif tag.name == 'h2':
-            content_list.append({'type': 'heading_2', 'text': translated_text})
             content_list.append({'type': 'heading_2', 'text': text})
         elif tag.name == 'h4':
-            content_list.append({'type': 'heading_4', 'text': translated_text})
             content_list.append({'type': 'heading_4', 'text': text})
         elif tag.name == 'ul':
             for li in tag.find_all('li'):
                 li_text = li.get_text()
-                translated_li_text = translate_to_gujarati(li_text)
-                content_list.append({'type': 'list_item', 'text': f"• {translated_li_text}"})
                 content_list.append({'type': 'list_item', 'text': f"• {li_text}"})
     return content_list
 
