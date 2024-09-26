@@ -28,7 +28,7 @@ jobs:
     - name: Run the script
       env:
         TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-        TELEGRAM_CHANNEL_USERNAME: ${{ secrets.TELEGRAM_CHANNEL_USERNAME }}
+        TELEGRAM_CHANNEL_USERNAME: ${{ secrets.TELEGRAM_CHANNEL_ID }}
         MONGO_CONNECTION_STRING: ${{ secrets.MONGO_CONNECTION_STRING }}
       run: |
         python main.py
