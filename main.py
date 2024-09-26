@@ -190,7 +190,7 @@ async def main():
         caption = (
             f"🎗️ {datetime.now().strftime('%d %B %Y')} Current Affairs 🎗️\n\n"
             + '\n'.join([f"👉 {title}" for title in english_titles]) + '\n\n'
-            + "🎉 Join us :- @CurrentAdda 🎉"
+            + "🎉 Join us :- @Daily_Current_All_Source 🎉"
         )
         
         await send_pdf_to_telegram(renamed_pdf_path, bot_token, channel_id, caption)
