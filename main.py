@@ -23,15 +23,15 @@ import subprocess
 # Disable SSL/TLS-related warnings
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-# Configuration
+# Configuration from environment variables
 MONGO_CONNECTION_STRING = os.environ.get('MONGO_CONNECTION_STRING')
 TELEGRAM_BOT_TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN')
-TELEGRAM_CHANNEL_USERNAME = os.environ.get('TELEGRAM_CHANNEL_USERNAME')
+TELEGRAM_CHAT_ID = os.environ.get('TELEGRAM_CHAT_ID')  # Use chat_id directly
 TEMPLATE_URL = os.environ.get('TEMPLATE_URL')
 
-# Validate channel username or chat_id
-if not TELEGRAM_CHANNEL_USERNAME:
-    raise ValueError("TELEGRAM_CHANNEL_USERNAME is not set or is empty.")
+# Validate that TELEGRAM_CHAT_ID is set and not empty
+if not TELEGRAM_CHAT_ID:
+    raise ValueError("TELEGRAM_CHAT_ID is not set or is empty.")
 
 DB_NAME = 'IndiaBixEnglish'
 COLLECTION_NAME = 'urls'
@@ -41,9 +41,9 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 class TelegramQuizBot:
-    def __init__(self, token, channel_username):
+    def __init__(self, token, chat_id):
         self.bot = Bot(token=token)
-        self.channel_username = channel_username
+        self.chat_id = chat_id
 
     def truncate_text(self, text, max_length):
         return text[:max_length-3] + '...' if len(text) > max_length else text
@@ -63,7 +63,7 @@ class TelegramQuizBot:
                 return
 
             await self.bot.send_poll(
-                chat_id=self.channel_username,
+                chat_id=self.chat_id,  # Use chat_id here instead of username
                 question=question,
                 options=options,
                 is_anonymous=True,
@@ -149,7 +149,7 @@ def scrape_latest_questions(latest_link):
         return []
 
 async def send_new_questions_to_telegram(new_questions):
-    bot = TelegramQuizBot(TELEGRAM_BOT_TOKEN, TELEGRAM_CHANNEL_USERNAME)
+    bot = TelegramQuizBot(TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID)
     for question in new_questions:
         await bot.send_poll(question)
         await asyncio.sleep(3)  # Rate limit to avoid spamming
@@ -227,15 +227,15 @@ def convert_docx_to_pdf(docx_path, pdf_path):
         logger.error(f"Error converting DOCX to PDF: {e}")
         raise
 
-async def send_pdf_to_telegram(bot, channel_username, pdf_path, caption):
+async def send_pdf_to_telegram(bot, chat_id, pdf_path, caption):
     try:
         with open(pdf_path, 'rb') as pdf_file:
             await bot.send_document(
-                chat_id=channel_username,
+                chat_id=chat_id,
                 document=pdf_file,
                 caption=caption
             )
-        logger.info(f"Sent PDF to channel: {channel_username}")
+        logger.info(f"Sent PDF to chat_id: {chat_id}")
     except TelegramError as e:
         logger.error(f"Failed to send PDF: {e.message}")
 
@@ -312,10 +312,9 @@ async def main():
                 f"📚 Current Affairs Quiz - {quiz_date}\n\n"
                 f"Here's a PDF containing today's quiz questions and answers.\n"
                 f"Total Questions: {len(question_docs)}\n\n"
-                f"🔍 Test your knowledge and stay updated!\n"
-                f"Join us for daily quizzes at {TELEGRAM_CHANNEL_USERNAME}"
+                f"🔍 Test your knowledge and stay updated!"
             )
-            await send_pdf_to_telegram(bot, TELEGRAM_CHANNEL_USERNAME, pdf_path, caption)
+            await send_pdf_to_telegram(bot, TELEGRAM_CHAT_ID, pdf_path, caption)
 
             # Clean up temporary files
             os.unlink(tmp_docx.name)
