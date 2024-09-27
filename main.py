@@ -14,8 +14,8 @@ import pymongo
 from pymongo import MongoClient
 import io
 from docx import Document
-from docx.shared import Pt
-from docx.enum.text import WD_LINE_SPACING
+from docx.shared import Pt, RGBColor
+from docx.enum.text import WD_PARAGRAPH_ALIGNMENT
 import tempfile
 import time
 import subprocess
@@ -28,6 +28,7 @@ MONGO_CONNECTION_STRING = os.environ.get('MONGO_CONNECTION_STRING')
 TELEGRAM_BOT_TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN')
 TELEGRAM_CHAT_ID = os.environ.get('TELEGRAM_CHAT_ID')  # Use chat_id directly
 TEMPLATE_URL = os.environ.get('TEMPLATE_URL')
+TELEGRAM_CHANNEL_URL = "https://t.me/YourChannelUsername"  # Replace with your actual channel URL
 
 # Validate that TELEGRAM_CHAT_ID is set and not empty
 if not TELEGRAM_CHAT_ID:
@@ -182,6 +183,33 @@ def insert_content_between_placeholders(doc, content_list):
             new_para.paragraph_format.left_indent = Pt(20)
             new_para.paragraph_format.space_after = Pt(0)
         new_para.paragraph_format.line_spacing = 1.0
+
+    # Add promotional message with a clickable hyperlink to the Telegram channel
+    add_promotional_message(doc)
+
+def add_promotional_message(doc):
+    """ Adds a promotional message with a clickable hyperlink to the Telegram channel at the end of the document. """
+    para = doc.add_paragraph()
+    
+    # Set alignment to center
+    para.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
+    
+    # Add promotional text
+    run = para.add_run("📢 Join our Telegram Channel for daily quizzes and updates: ")
+    run.bold = True
+    run.font.size = Pt(12)
+    
+    # Add clickable hyperlink
+    add_hyperlink(para, TELEGRAM_CHANNEL_URL, "Join Now", RGBColor(0, 102, 204))
+
+def add_hyperlink(paragraph, url, text, color):
+    """ Add a clickable hyperlink to the given paragraph. """
+    part = paragraph.add_run(text)
+    part.font.color.rgb = color
+    part.font.size = Pt(12)
+    part.underline = True
+    # Create a hyperlink (Word document will auto-convert this when saved as PDF)
+    part.hyperlink = url  # This allows Word to recognize the URL when converting to PDF
 
 def prepare_content_list(question_docs):
     content_list = []
