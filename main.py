@@ -155,24 +155,10 @@ async def send_new_questions_to_telegram(new_questions):
         await bot.send_poll(question)
         await asyncio.sleep(3)  # Rate limit to avoid spamming
 
-def insert_content_between_placeholders(doc, content_list):
-    start_placeholder = end_placeholder = None
-    
-    for i, para in enumerate(doc.paragraphs):
-        if "START_CONTENT" in para.text:
-            start_placeholder = i
-        elif "END_CONTENT" in para.text:
-            end_placeholder = i
-            break
-    
-    if start_placeholder is None or end_placeholder is None:
-        raise Exception("Could not find both placeholders")
-    
-    # Remove paragraphs between placeholders
-    for _ in range(end_placeholder - start_placeholder + 1):
-        doc._body._body.remove(doc.paragraphs[start_placeholder]._element)
-    
-    # Insert new content
+def insert_content_from_top(doc, content_list):
+    """
+    Insert content sequentially from the top of the document.
+    """
     for content in content_list:
         new_para = doc.add_paragraph()
         run = new_para.add_run(content['text'])
@@ -320,7 +306,7 @@ async def main():
             # Download and modify the template
             template_bytes = download_template(TEMPLATE_URL)
             doc = Document(template_bytes)
-            insert_content_between_placeholders(doc, content_list)
+            insert_content_from_top(doc, content_list)
 
             # Save the modified document
             with tempfile.NamedTemporaryFile(delete=False, suffix='.docx') as tmp_docx:
