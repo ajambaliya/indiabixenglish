@@ -199,12 +199,16 @@ def add_promotional_message(doc):
     para.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
     
     # Add promotional text
-    run = para.add_run("📢 Join our Telegram Channel for daily quizzes and updates: ")
+    run = para.add_run("📢 Join our Telegram Channel for daily quizzes and updates: We Are Uploding All Sources Current Affairs Daily On Specific Time So It Will Be Easy for You To Come to channel on Specific time and read what you want. ")
     run.bold = True
     run.font.size = Pt(14)  # Slightly larger font size for promotional text
     
     # Add plain URL (LibreOffice will make this clickable in the PDF)
-    para.add_run(f" {TELEGRAM_CHANNEL_URL}").font.color.rgb = RGBColor(0, 102, 204)  # URL in blue
+    url_run = para.add_run(f" {TELEGRAM_CHANNEL_URL}")
+    url_run.font.color.rgb = RGBColor(0, 102, 204)  # URL in blue
+    url_run.font.size = Pt(19)  # Increase font size of the URL
+    url_run.bold = True  # Make the URL bold to stand out
+
 
 def prepare_content_list(question_docs):
     content_list = []
