@@ -15,9 +15,7 @@ from pymongo import MongoClient
 import io
 from docx import Document
 from docx.shared import Pt, RGBColor
-from docx.enum.text import WD_PARAGRAPH_ALIGNMENT, WD_LINE_SPACING
-from docx.oxml import OxmlElement
-from docx.oxml.ns import qn
+from docx.enum.text import WD_PARAGRAPH_ALIGNMENT
 import tempfile
 import time
 import subprocess
@@ -30,7 +28,7 @@ MONGO_CONNECTION_STRING = os.environ.get('MONGO_CONNECTION_STRING')
 TELEGRAM_BOT_TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN')
 TELEGRAM_CHAT_ID = os.environ.get('TELEGRAM_CHAT_ID')  # Use chat_id directly
 TEMPLATE_URL = os.environ.get('TEMPLATE_URL')
-TELEGRAM_CHANNEL_URL = "https://t.me/YourChannelUsername"  # Replace with your actual channel URL
+TELEGRAM_CHANNEL_URL = "https://t.me/daily_current_all_source"  # Replace with your actual channel URL
 
 # Validate that TELEGRAM_CHAT_ID is set and not empty
 if not TELEGRAM_CHAT_ID:
@@ -190,11 +188,11 @@ def insert_content_from_top(doc, content_list):
             
         new_para.paragraph_format.line_spacing = 1.5  # Line spacing to improve readability
 
-    # Add promotional message with a clickable hyperlink to the Telegram channel
+    # Add promotional message with a plain clickable URL to the Telegram channel
     add_promotional_message(doc)
 
 def add_promotional_message(doc):
-    """ Adds a promotional message with a clickable hyperlink to the Telegram channel at the end of the document. """
+    """ Adds a promotional message with a plain clickable URL to the Telegram channel at the end of the document. """
     para = doc.add_paragraph()
     
     # Set alignment to center
@@ -205,32 +203,8 @@ def add_promotional_message(doc):
     run.bold = True
     run.font.size = Pt(14)  # Slightly larger font size for promotional text
     
-    # Add clickable hyperlink
-    add_hyperlink(para, TELEGRAM_CHANNEL_URL, "Join Now", RGBColor(0, 102, 204))
-
-def add_hyperlink(paragraph, url, text, color):
-    """Add a clickable hyperlink to a paragraph."""
-    # Create the hyperlink tag and add necessary attributes
-    hyperlink = OxmlElement('w:hyperlink')
-    hyperlink.set(qn('r:id'), 'rId1')  # Set relation ID to 1 (you can increment for multiple hyperlinks)
-
-    # Create the run for the hyperlink text
-    run = OxmlElement('w:r')
-    rPr = OxmlElement('w:rPr')  # Formatting for the run
-    rStyle = OxmlElement('w:rStyle')  # Custom style for the hyperlink
-    rStyle.set(qn('w:val'), 'Hyperlink')  # Set hyperlink style
-    rPr.append(rStyle)
-    run.append(rPr)
-
-    # Add the actual text to display
-    t = OxmlElement('w:t')
-    t.text = text
-    run.append(t)
-
-    hyperlink.append(run)
-
-    # Append the hyperlink to the paragraph
-    paragraph._p.append(hyperlink)
+    # Add plain URL (LibreOffice will make this clickable in the PDF)
+    para.add_run(f" {TELEGRAM_CHANNEL_URL}").font.color.rgb = RGBColor(0, 102, 204)  # URL in blue
 
 def prepare_content_list(question_docs):
     content_list = []
