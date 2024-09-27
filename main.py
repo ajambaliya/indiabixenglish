@@ -1,83 +1,146 @@
-import io
-import os
+import logging
+import asyncio
 import requests
 from bs4 import BeautifulSoup
-from docx import Document
+from urllib.parse import urljoin
+import urllib3
+from telegram import Bot
+from telegram.constants import PollType
+from telegram.error import TelegramError
 from datetime import datetime
+import os
+import pytz
 import pymongo
-import asyncio
-import telegram
+from pymongo import MongoClient
+import io
+from docx import Document
+from docx.shared import Pt
+from docx.enum.text import WD_LINE_SPACING
 import tempfile
+import time
 import subprocess
 
-# MongoDB setup
-DB_NAME = os.environ.get('DB_NAME')
-COLLECTION_NAME = os.environ.get('COLLECTION_NAME')
+# Disable SSL/TLS-related warnings
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+# Configuration
 MONGO_CONNECTION_STRING = os.environ.get('MONGO_CONNECTION_STRING')
+TELEGRAM_BOT_TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN')
+TELEGRAM_CHANNEL_USERNAME = os.environ.get('TELEGRAM_CHANNEL_USERNAME')
+DB_NAME = 'indiabixurl'
+COLLECTION_NAME = 'ScrapedLinks'
+TEMPLATE_URL = "https://docs.google.com/document/d/1uicNeRcONkwaf8ktWHfLl0lfLP_RZGNn/edit?usp=sharing&ouid=108520131839767724661&rtpof=true&sd=true"
 
-if not all([DB_NAME, COLLECTION_NAME, MONGO_CONNECTION_STRING]):
-    raise ValueError("One or more required MongoDB environment variables are not set")
+# Setup logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-client = pymongo.MongoClient(MONGO_CONNECTION_STRING)
-db = client[DB_NAME]
-collection = db[COLLECTION_NAME]
+class TelegramQuizBot:
+    def __init__(self, token, channel_username):
+        self.bot = Bot(token=token)
+        self.channel_username = channel_username
 
-def fetch_article_urls(base_url, pages):
-    article_urls = []
-    headers = {'User-Agent': 'Mozilla/5.0'}
-    
-    for page in range(1, pages + 1):
-        url = base_url if page == 1 else f"{base_url}page/{page}/"
-        print(f"Fetching URL: {url}")
-        
+    def truncate_text(self, text, max_length):
+        return text[:max_length-3] + '...' if len(text) > max_length else text
+
+    async def send_poll(self, question_doc):
+        question = self.truncate_text(question_doc["question"], 300)
+        options = [self.truncate_text(opt, 100) for opt in question_doc["options"]]
+        correct_option = question_doc["value_in_braces"]
+        explanation = self.truncate_text(question_doc["explanation"], 200)
+
+        option_mapping = {chr(65+i): i for i in range(len(options))}  # Mapping 'A'->0, 'B'->1, etc.
+
         try:
-            response = requests.get(url, headers=headers)
-            response.raise_for_status()  # Raise an exception for bad status codes
-            soup = BeautifulSoup(response.content, 'html.parser')
+            correct_option_id = option_mapping.get(correct_option)
+            if correct_option_id is None:
+                logger.error(f"Correct option '{correct_option}' not found in options: {options}")
+                return
 
-            # Extract article URLs
-            for a_tag in soup.find_all('a', href=True):
-                href = a_tag['href']
-                if 'current-affairs' in href and href not in article_urls:
-                    article_urls.append(href)
+            await self.bot.send_poll(
+                chat_id=self.channel_username,
+                question=question,
+                options=options,
+                is_anonymous=True,
+                type=PollType.QUIZ,
+                correct_option_id=correct_option_id,
+                explanation=explanation
+            )
+            logger.info(f"Sent poll: {question}")
+        except TelegramError as e:
+            logger.error(f"Failed to send poll: {e.message}")
 
-        except requests.exceptions.RequestException as e:
-            print(f"Error fetching page {page}: {e}")
-    
-    print(f"Found article URLs: {article_urls}")
-    return article_urls
+def get_current_month():
+    ist = pytz.timezone('Asia/Kolkata')
+    current_date = datetime.now(ist)
+    return f"{current_date.month:02d}"
+
+def connect_to_mongo():
+    client = MongoClient(MONGO_CONNECTION_STRING)
+    db = client[DB_NAME]
+    collection = db[COLLECTION_NAME]
+    return collection
+
+def get_scraped_urls(collection):
+    urls = set()
+    for doc in collection.find({}, {'url': 1}):
+        if 'url' in doc:
+            urls.add(doc['url'])
+        else:
+            logger.warning(f"Document without 'url' field encountered: {doc}")
+    return urls
 
 
-async def scrape_and_get_content(url):
-    response = requests.get(url)
-    soup = BeautifulSoup(response.content, 'html.parser')
-    main_content = soup.find('div', class_='inside_post column content_width')
-    if not main_content:
-        raise Exception("Main content div not found")
-    
-    heading = main_content.find('h1', id='list')
-    if not heading:
-        raise Exception("Heading not found")
-    
-    content_list = []
-    heading_text = heading.get_text()
-    content_list.append({'type': 'heading', 'text': heading_text})
-    
-    for tag in main_content.find_all(recursive=False):
-        if tag.get('class') in [['sharethis-inline-share-buttons', 'st-center', 'st-has-labels', 'st-inline-share-buttons', 'st-animated'], ['prenext']]:
-            continue
-        text = tag.get_text()
-        if tag.name == 'p':
-            content_list.append({'type': 'paragraph', 'text': text})
-        elif tag.name == 'h2':
-            content_list.append({'type': 'heading_2', 'text': text})
-        elif tag.name == 'h4':
-            content_list.append({'type': 'heading_4', 'text': text})
-        elif tag.name == 'ul':
-            for li in tag.find_all('li'):
-                li_text = li.get_text()
-                content_list.append({'type': 'list_item', 'text': f"• {li_text}"})
-    return content_list
+def store_scraped_urls(collection, urls):
+    for url in urls:
+        collection.update_one({'url': url}, {'$set': {'url': url}}, upsert=True)
+
+def scrape_latest_questions(latest_link):
+    try:
+        response = requests.get(latest_link, verify=False)
+        response.raise_for_status()
+        soup = BeautifulSoup(response.text, 'html.parser')
+
+        question_docs = []
+
+        question_divs = soup.find_all("div", class_="bix-div-container")
+
+        for question_div in question_divs:
+            try:
+                qtxt = question_div.find("div", class_="bix-td-qtxt").text.strip()
+                options_div = question_div.find("div", class_="bix-tbl-options")
+                option_rows = options_div.find_all("div", class_="bix-opt-row")
+                options = [option_row.find("div", class_="bix-td-option-val").text.strip() for option_row in option_rows]
+
+                hidden_input = question_div.find("input", class_="jq-hdnakq")
+                value_in_braces = hidden_input['value'].split('{', 1)[-1].rsplit('}', 1)[0] if hidden_input and 'value' in hidden_input.attrs else ""
+
+                answer_div = question_div.find("div", class_="bix-div-answer")
+                explanation = answer_div.find("div", class_="bix-ans-description").text.strip()
+
+                question_doc = {
+                    "question": qtxt,
+                    "options": options,
+                    "value_in_braces": value_in_braces,
+                    "explanation": explanation
+                }
+
+                question_docs.append(question_doc)
+
+            except Exception as e:
+                logger.error(f"Error scraping content: {e}")
+
+        return question_docs
+
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Error fetching URL: {e}")
+        return []
+
+async def send_new_questions_to_telegram(new_questions):
+    bot = TelegramQuizBot(TELEGRAM_BOT_TOKEN, TELEGRAM_CHANNEL_USERNAME)
+    for question in new_questions:
+        await bot.send_poll(question)
+        await asyncio.sleep(3)  # Rate limit to avoid spamming
 
 def insert_content_between_placeholders(doc, content_list):
     start_placeholder = end_placeholder = None
@@ -91,27 +154,35 @@ def insert_content_between_placeholders(doc, content_list):
     
     if start_placeholder is None or end_placeholder is None:
         raise Exception("Could not find both placeholders")
-
-    for i in range(end_placeholder - 1, start_placeholder, -1):
-        p = doc.paragraphs[i]
-        p._element.getparent().remove(p._element)
-
-    content_list = content_list[::-1]
-
+    
+    # Remove paragraphs between placeholders
+    for _ in range(end_placeholder - start_placeholder + 1):
+        doc._body._body.remove(doc.paragraphs[start_placeholder]._element)
+    
+    # Insert new content
     for content in content_list:
-        if content['type'] == 'heading':
-            doc.paragraphs[start_placeholder]._element.addnext(doc.add_heading(content['text'], level=1)._element)
-        elif content['type'] == 'paragraph':
-            doc.paragraphs[start_placeholder]._element.addnext(doc.add_paragraph(content['text'], style='Normal')._element)
-        elif content['type'] == 'heading_2':
-            doc.paragraphs[start_placeholder]._element.addnext(doc.add_heading(content['text'], level=2)._element)
-        elif content['type'] == 'heading_4':
-            doc.paragraphs[start_placeholder]._element.addnext(doc.add_heading(content['text'], level=4)._element)
-        elif content['type'] == 'list_item':
-            doc.paragraphs[start_placeholder]._element.addnext(doc.add_paragraph(content['text'], style='List Bullet')._element)
+        new_para = doc.add_paragraph()
+        run = new_para.add_run(content['text'])
+        if content['type'] == 'question':
+            run.bold = True
+            new_para.paragraph_format.space_after = Pt(6)
+        elif content['type'] in ['options', 'answer', 'explanation']:
+            new_para.paragraph_format.left_indent = Pt(20)
+            new_para.paragraph_format.space_after = Pt(0)
+        new_para.paragraph_format.line_spacing = 1.0
 
-    doc.paragraphs[start_placeholder].text = ""
-    doc.paragraphs[end_placeholder].text = ""
+def prepare_content_list(question_docs):
+    content_list = []
+    for i, question in enumerate(question_docs, 1):
+        content_list.extend([
+            {'type': 'question', 'text': f"Question {i}: {question['question']}"},
+            {'type': 'options', 'text': "Options:"},
+            *[{'type': 'options', 'text': f"{chr(65+j)}. {opt}"} for j, opt in enumerate(question['options'])],
+            {'type': 'answer', 'text': f"Correct Answer: {question['value_in_braces']}"},
+            {'type': 'explanation', 'text': f"Explanation: {question['explanation']}"},
+            {'type': 'space', 'text': "\n"}
+        ])
+    return content_list
 
 def download_template(url):
     download_url = url.replace('/edit?usp=sharing', '/export?format=docx')
@@ -119,101 +190,134 @@ def download_template(url):
         response = requests.get(download_url)
         response.raise_for_status()
         return io.BytesIO(response.content)
-    except requests.exceptions.RequestException:
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Error downloading template: {e}")
         raise
-
-def check_and_insert_urls(urls):
-    new_urls = []
-    for url in urls:
-        if 'daily-current-affairs-quiz' in url:
-            continue
-        if not collection.find_one({'url': url}):
-            new_urls.append(url)
-            collection.insert_one({'url': url})
-    return new_urls
 
 def convert_docx_to_pdf(docx_path, pdf_path):
     try:
-        subprocess.run(['libreoffice', '--headless', '--convert-to', 'pdf', '--outdir', 
-                        os.path.dirname(pdf_path), docx_path], 
-                       check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        original_pdf = os.path.splitext(os.path.basename(docx_path))[0] + '.pdf'
-        original_pdf_path = os.path.join(os.path.dirname(pdf_path), original_pdf)
-        os.rename(original_pdf_path, pdf_path)
-    except subprocess.CalledProcessError:
+        output_dir = os.path.dirname(pdf_path)
+        result = subprocess.run(['libreoffice', '--headless', '--convert-to', 'pdf', '--outdir', output_dir, docx_path], 
+                                check=True, capture_output=True, text=True)
+        logger.info(f"LibreOffice conversion output: {result.stdout}")
+        logger.error(f"LibreOffice conversion error output: {result.stderr}")
+        
+        # Print current working directory and its contents
+        logger.info(f"Current working directory: {os.getcwd()}")
+        logger.info(f"Directory contents: {os.listdir(output_dir)}")
+        
+        # LibreOffice places the PDF in the same directory with the same name as DOCX
+        pdf_temp_path = os.path.join(output_dir, os.path.splitext(os.path.basename(docx_path))[0] + '.pdf')
+        if os.path.exists(pdf_temp_path):
+            os.rename(pdf_temp_path, pdf_path)
+            logger.info(f"Successfully converted DOCX to PDF: {pdf_path}")
+        else:
+            raise FileNotFoundError(f"PDF file not found at expected location: {pdf_temp_path}")
+    except subprocess.CalledProcessError as e:
+        logger.error(f"LibreOffice conversion failed: {e}")
+        logger.error(f"LibreOffice stderr: {e.stderr}")
+        raise
+    except Exception as e:
+        logger.error(f"Error converting DOCX to PDF: {e}")
         raise
 
-def rename_pdf(pdf_path, new_name):
-    new_pdf_path = os.path.join(os.path.dirname(pdf_path), new_name)
-    os.rename(pdf_path, new_pdf_path)
-    return new_pdf_path
+async def send_pdf_to_telegram(bot, channel_username, pdf_path, caption):
+    try:
+        with open(pdf_path, 'rb') as pdf_file:
+            await bot.send_document(
+                chat_id=channel_username,
+                document=pdf_file,
+                caption=caption
+            )
+        logger.info(f"Sent PDF to channel: {channel_username}")
+    except TelegramError as e:
+        logger.error(f"Failed to send PDF: {e.message}")
 
-async def send_pdf_to_telegram(pdf_path, bot_token, channel_id, caption):
-    bot = telegram.Bot(token=bot_token)
-    for _ in range(3):
-        try:
-            with open(pdf_path, 'rb') as pdf_file:
-                await bot.send_document(chat_id=channel_id, document=pdf_file, filename=os.path.basename(pdf_path), caption=caption)
-            break
-        except telegram.error.TimedOut:
-            await asyncio.sleep(5)
+def extract_date_from_url(url):
+    parts = url.split("/")
+    try:
+        date_str = parts[-2]
+        date_obj = datetime.strptime(date_str, "%Y-%m-%d")
+        return date_obj.strftime("%d %B %Y")
+    except (ValueError, IndexError):
+        logger.warning(f"Date extraction failed for URL: {url}")
+        return datetime.now().strftime("%d %B %Y")
 
 async def main():
-    try:
-        base_url = "https://www.gktoday.in/current-affairs/"
-        article_urls = fetch_article_urls(base_url, 2)
-        new_urls = check_and_insert_urls(article_urls)
-        if not new_urls:
-            return
+    collection = connect_to_mongo()
+    stored_urls = get_scraped_urls(collection)
+    url = "https://www.indiabix.com/current-affairs/questions-and-answers/"
+    month_digit = get_current_month()
+
+    response = requests.get(url, verify=False)
+    response.raise_for_status()
+    soup = BeautifulSoup(response.text, 'html.parser')
+    link_elements = soup.find_all("a", class_="text-link me-3")
+
+    valid_links = []
+    for link_element in link_elements:
+        href = link_element.get("href")
+        if f"/current-affairs/2024-{month_digit}-" in href:
+            full_url = urljoin("https://www.indiabix.com/", href)
+            if full_url not in stored_urls:
+                valid_links.append(full_url)
+
+    if not valid_links:
+        logger.info("No new valid links found.")
+        return
+
+    # Sort the links by date (optional, if you want to process in order)
+    valid_links.sort(key=lambda x: datetime.strptime(x.split("/")[-2], "%Y-%m-%d"))
+
+    for link in valid_links:
+        logger.info(f"Scraping link: {link}")
+
+        question_docs = scrape_latest_questions(link)
         
-        template_url = os.environ.get('TEMPLATE_URL')
-        if not template_url:
-            raise ValueError("TEMPLATE_URL environment variable is not set")
+        if question_docs:
+            store_scraped_urls(collection, [link])
+            await send_new_questions_to_telegram(question_docs)
+
+            # Prepare content for the document
+            content_list = prepare_content_list(question_docs)
+
+            # Download and modify the template
+            template_bytes = download_template(TEMPLATE_URL)
+            doc = Document(template_bytes)
+            insert_content_between_placeholders(doc, content_list)
+
+            # Save the modified document
+            with tempfile.NamedTemporaryFile(delete=False, suffix='.docx') as tmp_docx:
+                doc.save(tmp_docx.name)
+
+            # Convert to PDF
+            pdf_filename = f"current_affairs_{datetime.now().strftime('%Y%m%d')}.pdf"
+            pdf_path = os.path.abspath(pdf_filename)
+            convert_docx_to_pdf(os.path.abspath(tmp_docx.name), pdf_path)
+
+            # Extract date from the scraped link
+            quiz_date = extract_date_from_url(link)
+
+            # Send PDF to Telegram
+            bot = Bot(token=TELEGRAM_BOT_TOKEN)
+            caption = (
+                f"📚 Current Affairs Quiz - {quiz_date}\n\n"
+                f"Here's a PDF containing today's quiz questions and answers.\n"
+                f"Total Questions: {len(question_docs)}\n\n"
+                f"🔍 Test your knowledge and stay updated!\n"
+                f"Join us for daily quizzes at {TELEGRAM_CHANNEL_USERNAME}"
+            )
+            await send_pdf_to_telegram(bot, TELEGRAM_CHANNEL_USERNAME, pdf_path, caption)
+
+            # Clean up temporary files
+            os.unlink(tmp_docx.name)
+            os.remove(pdf_path)
         
-        template_bytes = download_template(template_url)
+        else:
+            logger.info(f"No questions found for link: {link}")
         
-        doc = Document(template_bytes)
-        
-        all_content = []
-        english_titles = []
-        for url in new_urls:
-            content_list = await scrape_and_get_content(url)
-            all_content.extend(content_list)
-            english_titles.append(content_list[0]['text'])  # Assuming the first item is the title
-        
-        insert_content_between_placeholders(doc, all_content)
-        
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.docx') as tmp_docx:
-            doc.save(tmp_docx.name)
-        
-        pdf_path = tmp_docx.name.replace('.docx', '.pdf')
-        
-        convert_docx_to_pdf(tmp_docx.name, pdf_path)
-        
-        # Rename the PDF file
-        current_date = datetime.now().strftime('%d-%m-%Y')
-        new_pdf_name = f"{current_date} Current Affairs.pdf"
-        renamed_pdf_path = rename_pdf(pdf_path, new_pdf_name)
-        
-        bot_token = os.environ.get('TELEGRAM_BOT_TOKEN')
-        channel_id = os.environ.get('TELEGRAM_CHANNEL_ID')
-        
-        if not bot_token or not channel_id:
-            raise ValueError("TELEGRAM_BOT_TOKEN or TELEGRAM_CHANNEL_ID environment variable is not set")
-        
-        caption = (
-            f"🎗️ {datetime.now().strftime('%d %B %Y')} Current Affairs 🎗️\n\n"
-            + '\n'.join([f"👉 {title}" for title in english_titles]) + '\n\n'
-            + "🎉 Join us :- @Daily_Current_All_Source 🎉"
-        )
-        
-        await send_pdf_to_telegram(renamed_pdf_path, bot_token, channel_id, caption)
-        
-        os.unlink(tmp_docx.name)
-        os.unlink(renamed_pdf_path)
-        
-    except Exception as e:
-        raise
+        # Wait for 5 seconds before processing the next link
+        time.sleep(5)
 
 if __name__ == "__main__":
     asyncio.run(main())
