@@ -50,7 +50,8 @@ class TelegramQuizBot:
         return text[:max_length-3] + '...' if len(text) > max_length else text
 
     async def send_poll(self, question_doc):
-        question = self.truncate_text(question_doc["question"], 300)
+        # Append @daily_current_all_source to the question text
+        question = self.truncate_text(question_doc["question"], 300) + " @daily_current_all_source"
         options = [self.truncate_text(opt, 100) for opt in question_doc["options"]]
         correct_option = question_doc["value_in_braces"]
         explanation = self.truncate_text(question_doc["explanation"], 200)
@@ -63,9 +64,9 @@ class TelegramQuizBot:
                 logger.error(f"Correct option '{correct_option}' not found in options: {options}")
                 return
 
-            # Send the poll
+            # Send the poll with the updated question including @daily_current_all_source
             await self.bot.send_poll(
-                chat_id=self.chat_id, 
+                chat_id=self.chat_id,
                 question=question,
                 options=options,
                 is_anonymous=True,
@@ -74,10 +75,6 @@ class TelegramQuizBot:
                 explanation=explanation
             )
             logger.info(f"Sent poll: {question}")
-
-            # Send the promotional message `@Daily_Current_All_Source`
-            await self.bot.send_message(chat_id=self.chat_id, text="@Daily_Current_All_Source")
-            logger.info(f"Sent promotional message: @Daily_Current_All_Source")
 
         except TelegramError as e:
             logger.error(f"Failed to send poll: {e.message}")
@@ -264,13 +261,13 @@ async def send_pdf_to_telegram(bot, chat_id, pdf_path, caption):
 # Enhanced caption with symbols and design elements
 def generate_pdf_caption(quiz_date, question_count):
     return (
-        f"🎯 **Current Affairs Quiz - {quiz_date}**\n\n"
-        f"📝 **PDF Contents:**\n"
+        f"🎯 Current Affairs Quiz - {quiz_date}\n\n"
+        f"📝 PDF Contents:\n"
         f"• Total Questions: {question_count}\n\n"
-        f"🔍 **Boost Your Knowledge:** Stay updated with daily quizzes and enhance your knowledge!\n\n"
-        f"💡 **For More Quizzes:**\n"
+        f"🔍 Boost Your Knowledge: Stay updated with daily quizzes and enhance your knowledge!\n\n"
+        f"💡 For More Quizzes:\n"
         f"Join our Telegram channel @Daily_Current_All_Source to receive daily updates.\n"
-        f"🚀 **Stay Ahead, Stay Informed!**\n\n"
+        f"🚀 Stay Ahead, Stay Informed!\n\n"
         f"⚡️ Test your knowledge today! 📊"
     )
 
