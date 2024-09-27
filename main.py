@@ -27,8 +27,8 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 MONGO_CONNECTION_STRING = os.environ.get('MONGO_CONNECTION_STRING')
 TELEGRAM_BOT_TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN')
 TELEGRAM_CHANNEL_USERNAME = os.environ.get('TELEGRAM_CHANNEL_USERNAME')
-DB_NAME = 'indiabixurl'
-COLLECTION_NAME = 'ScrapedLinks'
+DB_NAME = 'IndiaBixEnglish'
+COLLECTION_NAME = 'urls'
 TEMPLATE_URL = "https://docs.google.com/document/d/1uicNeRcONkwaf8ktWHfLl0lfLP_RZGNn/edit?usp=sharing&ouid=108520131839767724661&rtpof=true&sd=true"
 
 # Setup logging
