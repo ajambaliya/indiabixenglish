@@ -15,7 +15,9 @@ from pymongo import MongoClient
 import io
 from docx import Document
 from docx.shared import Pt, RGBColor
-from docx.enum.text import WD_PARAGRAPH_ALIGNMENT
+from docx.enum.text import WD_PARAGRAPH_ALIGNMENT, WD_LINE_SPACING
+from docx.oxml import OxmlElement
+from docx.oxml.ns import qn
 import tempfile
 import time
 import subprocess
@@ -157,18 +159,36 @@ async def send_new_questions_to_telegram(new_questions):
 
 def insert_content_from_top(doc, content_list):
     """
-    Insert content sequentially from the top of the document.
+    Insert content sequentially from the top of the document with proper formatting and spacing.
     """
     for content in content_list:
         new_para = doc.add_paragraph()
         run = new_para.add_run(content['text'])
+        
+        # Styling based on the content type
         if content['type'] == 'question':
             run.bold = True
-            new_para.paragraph_format.space_after = Pt(6)
-        elif content['type'] in ['options', 'answer', 'explanation']:
-            new_para.paragraph_format.left_indent = Pt(20)
-            new_para.paragraph_format.space_after = Pt(0)
-        new_para.paragraph_format.line_spacing = 1.0
+            new_para.paragraph_format.space_after = Pt(10)  # Extra space after the question
+            new_para.paragraph_format.space_before = Pt(10)  # Extra space before the question
+            run.font.size = Pt(14)  # Larger font size for questions
+            
+        elif content['type'] in ['options']:
+            new_para.paragraph_format.left_indent = Pt(20)  # Indentation for options
+            run.font.size = Pt(12)  # Regular font size for options
+            new_para.paragraph_format.space_after = Pt(6)  # Small space between options
+            
+        elif content['type'] == 'answer':
+            run.bold = True
+            run.underline = True  # Underline correct answer
+            run.font.size = Pt(12)
+            new_para.paragraph_format.space_before = Pt(10)  # Extra space before the answer
+            
+        elif content['type'] == 'explanation':
+            run.italic = True  # Italicize explanation
+            run.font.size = Pt(12)
+            new_para.paragraph_format.space_after = Pt(10)  # Extra space after the explanation
+            
+        new_para.paragraph_format.line_spacing = 1.5  # Line spacing to improve readability
 
     # Add promotional message with a clickable hyperlink to the Telegram channel
     add_promotional_message(doc)
@@ -183,19 +203,34 @@ def add_promotional_message(doc):
     # Add promotional text
     run = para.add_run("📢 Join our Telegram Channel for daily quizzes and updates: ")
     run.bold = True
-    run.font.size = Pt(12)
+    run.font.size = Pt(14)  # Slightly larger font size for promotional text
     
     # Add clickable hyperlink
     add_hyperlink(para, TELEGRAM_CHANNEL_URL, "Join Now", RGBColor(0, 102, 204))
 
 def add_hyperlink(paragraph, url, text, color):
-    """ Add a clickable hyperlink to the given paragraph. """
-    part = paragraph.add_run(text)
-    part.font.color.rgb = color
-    part.font.size = Pt(12)
-    part.underline = True
-    # Create a hyperlink (Word document will auto-convert this when saved as PDF)
-    part.hyperlink = url  # This allows Word to recognize the URL when converting to PDF
+    """Add a clickable hyperlink to a paragraph."""
+    # Create the hyperlink tag and add necessary attributes
+    hyperlink = OxmlElement('w:hyperlink')
+    hyperlink.set(qn('r:id'), 'rId1')  # Set relation ID to 1 (you can increment for multiple hyperlinks)
+
+    # Create the run for the hyperlink text
+    run = OxmlElement('w:r')
+    rPr = OxmlElement('w:rPr')  # Formatting for the run
+    rStyle = OxmlElement('w:rStyle')  # Custom style for the hyperlink
+    rStyle.set(qn('w:val'), 'Hyperlink')  # Set hyperlink style
+    rPr.append(rStyle)
+    run.append(rPr)
+
+    # Add the actual text to display
+    t = OxmlElement('w:t')
+    t.text = text
+    run.append(t)
+
+    hyperlink.append(run)
+
+    # Append the hyperlink to the paragraph
+    paragraph._p.append(hyperlink)
 
 def prepare_content_list(question_docs):
     content_list = []
