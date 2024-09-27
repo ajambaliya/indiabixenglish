@@ -55,7 +55,7 @@ class TelegramQuizBot:
         correct_option = question_doc["value_in_braces"]
         explanation = self.truncate_text(question_doc["explanation"], 200)
 
-        option_mapping = {chr(65+i): i for i in range(len(options))}  # Mapping 'A'->0, 'B'->1, etc.
+        option_mapping = {chr(65+i): i for i in range(len(options))}
 
         try:
             correct_option_id = option_mapping.get(correct_option)
@@ -63,8 +63,9 @@ class TelegramQuizBot:
                 logger.error(f"Correct option '{correct_option}' not found in options: {options}")
                 return
 
+            # Send the poll
             await self.bot.send_poll(
-                chat_id=self.chat_id,  # Use chat_id here instead of username
+                chat_id=self.chat_id, 
                 question=question,
                 options=options,
                 is_anonymous=True,
@@ -73,6 +74,11 @@ class TelegramQuizBot:
                 explanation=explanation
             )
             logger.info(f"Sent poll: {question}")
+
+            # Send the promotional message `@Daily_Current_All_Source`
+            await self.bot.send_message(chat_id=self.chat_id, text="@Daily_Current_All_Source")
+            logger.info(f"Sent promotional message: @Daily_Current_All_Source")
+
         except TelegramError as e:
             logger.error(f"Failed to send poll: {e.message}")
             logger.error(f"Full error details: {e}")
@@ -156,59 +162,48 @@ async def send_new_questions_to_telegram(new_questions):
         await asyncio.sleep(3)  # Rate limit to avoid spamming
 
 def insert_content_from_top(doc, content_list):
-    """
-    Insert content sequentially from the top of the document with proper formatting and spacing.
-    """
     for content in content_list:
         new_para = doc.add_paragraph()
         run = new_para.add_run(content['text'])
         
-        # Styling based on the content type
         if content['type'] == 'question':
             run.bold = True
-            new_para.paragraph_format.space_after = Pt(10)  # Extra space after the question
-            new_para.paragraph_format.space_before = Pt(10)  # Extra space before the question
-            run.font.size = Pt(14)  # Larger font size for questions
+            new_para.paragraph_format.space_after = Pt(10)
+            new_para.paragraph_format.space_before = Pt(10)
+            run.font.size = Pt(14)
             
         elif content['type'] in ['options']:
-            new_para.paragraph_format.left_indent = Pt(20)  # Indentation for options
-            run.font.size = Pt(12)  # Regular font size for options
-            new_para.paragraph_format.space_after = Pt(6)  # Small space between options
+            new_para.paragraph_format.left_indent = Pt(20)
+            run.font.size = Pt(12)
+            new_para.paragraph_format.space_after = Pt(6)
             
         elif content['type'] == 'answer':
             run.bold = True
-            run.underline = True  # Underline correct answer
+            run.underline = True
             run.font.size = Pt(12)
-            new_para.paragraph_format.space_before = Pt(10)  # Extra space before the answer
+            new_para.paragraph_format.space_before = Pt(10)
             
         elif content['type'] == 'explanation':
-            run.italic = True  # Italicize explanation
+            run.italic = True
             run.font.size = Pt(12)
-            new_para.paragraph_format.space_after = Pt(10)  # Extra space after the explanation
+            new_para.paragraph_format.space_after = Pt(10)
             
-        new_para.paragraph_format.line_spacing = 1.5  # Line spacing to improve readability
+        new_para.paragraph_format.line_spacing = 1.5
 
-    # Add promotional message with a plain clickable URL to the Telegram channel
     add_promotional_message(doc)
 
 def add_promotional_message(doc):
-    """ Adds a promotional message with a plain clickable URL to the Telegram channel at the end of the document. """
     para = doc.add_paragraph()
-    
-    # Set alignment to center
     para.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
     
-    # Add promotional text
-    run = para.add_run("📢 Join our Telegram Channel for daily quizzes and updates: We Are Uploding All Sources Current Affairs Daily On Specific Time So It Will Be Easy for You To Come to channel on Specific time and read what you want. ")
+    run = para.add_run("📢 Join our Telegram Channel for daily quizzes and updates: ")
     run.bold = True
-    run.font.size = Pt(14)  # Slightly larger font size for promotional text
+    run.font.size = Pt(14)
     
-    # Add plain URL (LibreOffice will make this clickable in the PDF)
     url_run = para.add_run(f" {TELEGRAM_CHANNEL_URL}")
-    url_run.font.color.rgb = RGBColor(0, 102, 204)  # URL in blue
-    url_run.font.size = Pt(19)  # Increase font size of the URL
-    url_run.bold = True  # Make the URL bold to stand out
-
+    url_run.font.color.rgb = RGBColor(0, 102, 204)
+    url_run.font.size = Pt(19)
+    url_run.bold = True
 
 def prepare_content_list(question_docs):
     content_list = []
@@ -266,6 +261,19 @@ async def send_pdf_to_telegram(bot, chat_id, pdf_path, caption):
     except TelegramError as e:
         logger.error(f"Failed to send PDF: {e.message}")
 
+# Enhanced caption with symbols and design elements
+def generate_pdf_caption(quiz_date, question_count):
+    return (
+        f"🎯 **Current Affairs Quiz - {quiz_date}**\n\n"
+        f"📝 **PDF Contents:**\n"
+        f"• Total Questions: {question_count}\n\n"
+        f"🔍 **Boost Your Knowledge:** Stay updated with daily quizzes and enhance your knowledge!\n\n"
+        f"💡 **For More Quizzes:**\n"
+        f"Join our Telegram channel @Daily_Current_All_Source to receive daily updates.\n"
+        f"🚀 **Stay Ahead, Stay Informed!**\n\n"
+        f"⚡️ Test your knowledge today! 📊"
+    )
+
 def extract_date_from_url(url):
     parts = url.split("/")
     try:
@@ -301,7 +309,6 @@ async def main():
         logger.info("No new valid links found.")
         return
 
-    # Sort the links by date (optional, if you want to process in order)
     valid_links.sort(key=lambda x: datetime.strptime(x.split("/")[-2], "%Y-%m-%d"))
 
     for link in valid_links:
@@ -313,44 +320,31 @@ async def main():
             store_scraped_urls(collection, [link])
             await send_new_questions_to_telegram(question_docs)
 
-            # Prepare content for the document
             content_list = prepare_content_list(question_docs)
 
-            # Download and modify the template
             template_bytes = download_template(TEMPLATE_URL)
             doc = Document(template_bytes)
             insert_content_from_top(doc, content_list)
 
-            # Save the modified document
             with tempfile.NamedTemporaryFile(delete=False, suffix='.docx') as tmp_docx:
                 doc.save(tmp_docx.name)
 
-            # Convert to PDF
             pdf_filename = f"current_affairs_{datetime.now().strftime('%Y%m%d')}.pdf"
             pdf_path = os.path.abspath(pdf_filename)
             convert_docx_to_pdf(os.path.abspath(tmp_docx.name), pdf_path)
 
-            # Extract date from the scraped link
             quiz_date = extract_date_from_url(link)
 
-            # Send PDF to Telegram
             bot = Bot(token=TELEGRAM_BOT_TOKEN)
-            caption = (
-                f"📚 Current Affairs Quiz - {quiz_date}\n\n"
-                f"Here's a PDF containing today's quiz questions and answers.\n"
-                f"Total Questions: {len(question_docs)}\n\n"
-                f"🔍 Test your knowledge and stay updated!"
-            )
+            caption = generate_pdf_caption(quiz_date, len(question_docs))
             await send_pdf_to_telegram(bot, TELEGRAM_CHAT_ID, pdf_path, caption)
 
-            # Clean up temporary files
             os.unlink(tmp_docx.name)
             os.remove(pdf_path)
         
         else:
             logger.info(f"No questions found for link: {link}")
         
-        # Wait for 5 seconds before processing the next link
         time.sleep(5)
 
 if __name__ == "__main__":
