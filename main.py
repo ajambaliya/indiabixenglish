@@ -24,15 +24,29 @@ collection = db[COLLECTION_NAME]
 
 def fetch_article_urls(base_url, pages):
     article_urls = []
+    headers = {'User-Agent': 'Mozilla/5.0'}
+    
     for page in range(1, pages + 1):
         url = base_url if page == 1 else f"{base_url}page/{page}/"
-        response = requests.get(url)
-        soup = BeautifulSoup(response.content, 'html.parser')
-        for h1_tag in soup.find_all('h1', id='list'):
-            a_tag = h1_tag.find('a')
-            if a_tag and a_tag.get('href'):
-                article_urls.append(a_tag['href'])
+        print(f"Fetching URL: {url}")
+        
+        try:
+            response = requests.get(url, headers=headers)
+            response.raise_for_status()  # Raise an exception for bad status codes
+            soup = BeautifulSoup(response.content, 'html.parser')
+
+            # Extract article URLs
+            for a_tag in soup.find_all('a', href=True):
+                href = a_tag['href']
+                if 'current-affairs' in href and href not in article_urls:
+                    article_urls.append(href)
+
+        except requests.exceptions.RequestException as e:
+            print(f"Error fetching page {page}: {e}")
+    
+    print(f"Found article URLs: {article_urls}")
     return article_urls
+
 
 async def scrape_and_get_content(url):
     response = requests.get(url)
