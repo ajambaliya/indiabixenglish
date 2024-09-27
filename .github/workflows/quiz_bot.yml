@@ -30,7 +30,7 @@ jobs:
     - name: Run the main script
       env:
         TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-        TELEGRAM_CHANNEL_ID: ${{ secrets.TELEGRAM_CHANNEL_USERNAME }}
+        TELEGRAM_CHANNEL_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         DB_NAME: ${{ secrets.DB_NAME }}
         COLLECTION_NAME: ${{ secrets.COLLECTION_NAME }}
         MONGO_CONNECTION_STRING: ${{ secrets.MONGO_CONNECTION_STRING }}
