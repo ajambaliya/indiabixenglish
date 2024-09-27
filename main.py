@@ -81,15 +81,21 @@ def connect_to_mongo():
     collection = db[COLLECTION_NAME]
     return collection
 
+# Modified: Gracefully handle documents without 'url' field
 def get_scraped_urls(collection):
     urls = set()
     for doc in collection.find({}, {'url': 1}):
-        if 'url' in doc:
-            urls.add(doc['url'])
+        url = doc.get('url')
+        if url:
+            urls.add(url)
         else:
             logger.warning(f"Document without 'url' field encountered: {doc}")
     return urls
 
+# Optional: Clean up documents missing 'url' field
+def clean_up_documents_without_url(collection):
+    result = collection.delete_many({"url": {"$exists": False}})
+    logger.info(f"Deleted {result.deleted_count} documents without 'url' field.")
 
 def store_scraped_urls(collection, urls):
     for url in urls:
@@ -245,7 +251,9 @@ def extract_date_from_url(url):
 
 async def main():
     collection = connect_to_mongo()
+    clean_up_documents_without_url(collection)  # Clean up documents without 'url' field (optional)
     stored_urls = get_scraped_urls(collection)
+    
     url = "https://www.indiabix.com/current-affairs/questions-and-answers/"
     month_digit = get_current_month()
 
