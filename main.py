@@ -27,9 +27,14 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 MONGO_CONNECTION_STRING = os.environ.get('MONGO_CONNECTION_STRING')
 TELEGRAM_BOT_TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN')
 TELEGRAM_CHANNEL_USERNAME = os.environ.get('TELEGRAM_CHANNEL_USERNAME')
+TEMPLATE_URL = os.environ.get('TEMPLATE_URL')
+
+# Validate channel username or chat_id
+if not TELEGRAM_CHANNEL_USERNAME:
+    raise ValueError("TELEGRAM_CHANNEL_USERNAME is not set or is empty.")
+
 DB_NAME = 'IndiaBixEnglish'
 COLLECTION_NAME = 'urls'
-TEMPLATE_URL = os.environ.get('TEMPLATE_URL')
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -69,6 +74,7 @@ class TelegramQuizBot:
             logger.info(f"Sent poll: {question}")
         except TelegramError as e:
             logger.error(f"Failed to send poll: {e.message}")
+            logger.error(f"Full error details: {e}")
 
 def get_current_month():
     ist = pytz.timezone('Asia/Kolkata')
@@ -81,7 +87,7 @@ def connect_to_mongo():
     collection = db[COLLECTION_NAME]
     return collection
 
-# Modified: Gracefully handle documents without 'url' field
+# Gracefully handle documents without 'url' field
 def get_scraped_urls(collection):
     urls = set()
     for doc in collection.find({}, {'url': 1}):
@@ -92,7 +98,7 @@ def get_scraped_urls(collection):
             logger.warning(f"Document without 'url' field encountered: {doc}")
     return urls
 
-# Optional: Clean up documents missing 'url' field
+# Clean up documents missing 'url' field
 def clean_up_documents_without_url(collection):
     result = collection.delete_many({"url": {"$exists": False}})
     logger.info(f"Deleted {result.deleted_count} documents without 'url' field.")
@@ -208,11 +214,6 @@ def convert_docx_to_pdf(docx_path, pdf_path):
         logger.info(f"LibreOffice conversion output: {result.stdout}")
         logger.error(f"LibreOffice conversion error output: {result.stderr}")
         
-        # Print current working directory and its contents
-        logger.info(f"Current working directory: {os.getcwd()}")
-        logger.info(f"Directory contents: {os.listdir(output_dir)}")
-        
-        # LibreOffice places the PDF in the same directory with the same name as DOCX
         pdf_temp_path = os.path.join(output_dir, os.path.splitext(os.path.basename(docx_path))[0] + '.pdf')
         if os.path.exists(pdf_temp_path):
             os.rename(pdf_temp_path, pdf_path)
@@ -221,7 +222,6 @@ def convert_docx_to_pdf(docx_path, pdf_path):
             raise FileNotFoundError(f"PDF file not found at expected location: {pdf_temp_path}")
     except subprocess.CalledProcessError as e:
         logger.error(f"LibreOffice conversion failed: {e}")
-        logger.error(f"LibreOffice stderr: {e.stderr}")
         raise
     except Exception as e:
         logger.error(f"Error converting DOCX to PDF: {e}")
