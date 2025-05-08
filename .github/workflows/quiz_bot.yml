@@ -1,9 +1,9 @@
 name: Telegram Quiz Bot
 
-on:
-  push:
-    branches: [main]
-  workflow_dispatch:
+#on:
+  #push:
+    #branches: [main]
+  #workflow_dispatch:
 
 jobs:
   run-script:
